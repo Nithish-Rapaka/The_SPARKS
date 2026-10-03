@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Robot icon">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ff8fb2"/>
+      <stop offset="1" stop-color="#9b66ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="12" width="52" height="36" rx="6" fill="url(#g)"/>
+  <rect x="18" y="6" width="28" height="8" rx="3" fill="#ffd25c"/>
+  <circle cx="22" cy="28" r="4" fill="#0f1724"/>
+  <circle cx="42" cy="28" r="4" fill="#0f1724"/>
+  <rect x="24" y="36" width="16" height="4" rx="2" fill="#0f1724" opacity="0.15"/>
+  <rect x="28" y="44" width="8" height="4" rx="2" fill="#0f1724" opacity="0.12"/>
+  <g transform="translate(6,2)">
+    <circle cx="16" cy="6" r="2" fill="#ff518b"/>
+    <circle cx="42" cy="6" r="2" fill="#ff518b"/>
+  </g>
+</svg>
