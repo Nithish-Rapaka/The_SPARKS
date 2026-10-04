@@ -26,9 +26,12 @@ LINKEDIN_CLIENT_ID=your_linkedin_client_id
 LINKEDIN_CLIENT_SECRET=your_linkedin_client_secret
 LINKEDIN_REDIRECT_URI=http://127.0.0.1:8000/link/linkedin/callback/
 FRONTEND_URL=http://localhost:3000
+MONGODB_URI=mongodb+srv://your-user:your-password@your-cluster/
+MONGODB_DATABASE=your-database
 ```
 
 For the LinkedIn app, add the exact redirect URI above to its OAuth settings. The callback saves its access token in `automation/linkedin_tokens.json`.
+Allow the machine running Django in your MongoDB provider's network access settings. After each successful publication, the app saves the prompt, post text, optional image URL, and publication time to the `linkedin_posts` collection in `MONGODB_DATABASE`. The dashboard displays the latest 50 saved posts.
 
 ## Run
 

@@ -10,6 +10,7 @@ from .auth_views import (
 
 from .linkedin_views import (
     linkedin_preview,
+    linkedin_posts,
     linkedin_publish_post,
     linkedin_status,
     linkedin_upload_image,
@@ -24,6 +25,7 @@ urlpatterns = [
     # LinkedIn
     path("api/linkedin/status/", linkedin_status),
     path("api/linkedin/preview/", linkedin_preview),
+    path("api/linkedin/posts/", linkedin_posts),
     path("api/linkedin/publish/", linkedin_publish_post),
 
     # LinkedIn image upload

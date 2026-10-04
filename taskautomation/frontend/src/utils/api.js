@@ -17,13 +17,22 @@ export const apiClient = {
   linkedinStatus: () => api.get("/api/linkedin/status/"),
   generateLinkedInPost: (prompt) =>
     api.post("/api/linkedin/preview/", { prompt }),
+  linkedinPosts: () => api.get("/api/linkedin/posts/"),
+  deleteLinkedInPosts: (postIds) =>
+    api.delete("/api/linkedin/posts/", {
+      data: postIds === null ? { all: true } : { ids: postIds },
+    }),
   uploadLinkedInImage: (file) => {
     const formData = new FormData();
     formData.append("image", file);
     return api.post("/api/linkedin/upload-image/", formData);
   },
-  publishLinkedInPost: (text, imageUrl) =>
-    api.post("/api/linkedin/publish/", { text, image_url: imageUrl }),
+  publishLinkedInPost: (text, imageUrl, prompt) =>
+    api.post("/api/linkedin/publish/", {
+      text,
+      image_url: imageUrl,
+      prompt,
+    }),
   connectLinkedIn: () => {
     const frontendOrigin = encodeURIComponent(window.location.origin);
     window.location.assign(

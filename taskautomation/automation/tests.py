@@ -2,8 +2,12 @@ from unittest.mock import Mock, patch
 import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from bson import ObjectId
+import requests
 
 from django.test import TestCase
+from pymongo.errors import PyMongoError
+from automation.services.linkedin_service import LinkedInPublishOutcomeUnknown
 
 
 class DemoSessionAuthTest(TestCase):
@@ -23,6 +27,68 @@ class DemoSessionAuthTest(TestCase):
         self.assertFalse(
             self.client.get("/api/auth/session/").data["authenticated"]
         )
+
+
+class MongoDBHistoryConfigurationTest(TestCase):
+    @patch("automation.services.linkedin_history.MongoClient")
+    def test_uses_configured_database_name(self, mongo_client):
+        from automation.services.linkedin_history import _posts_collection
+
+        with patch.dict(
+            "os.environ",
+            {
+                "MONGODB_URI": "mongodb://example.invalid/",
+                "MONGODB_DATABASE": "configured_database",
+            },
+        ):
+            client, collection = _posts_collection()
+
+        mongo_client.assert_called_once_with(
+            "mongodb://example.invalid/",
+            serverSelectionTimeoutMS=10000,
+            tz_aware=True,
+        )
+        client.__getitem__.assert_called_once_with("configured_database")
+        client.__getitem__.return_value.__getitem__.assert_called_once_with(
+            "linkedin_posts"
+        )
+        self.assertEqual(
+            collection,
+            client.__getitem__.return_value.__getitem__.return_value,
+        )
+
+    @patch("automation.services.linkedin_history._posts_collection")
+    def test_delete_selected_posts_uses_object_ids(self, get_collection):
+        from automation.services.linkedin_history import delete_linkedin_posts
+
+        client = Mock()
+        collection = Mock()
+        collection.delete_many.return_value.deleted_count = 2
+        get_collection.return_value = (client, collection)
+        post_ids = [str(ObjectId()), str(ObjectId())]
+
+        deleted_count = delete_linkedin_posts(post_ids)
+
+        self.assertEqual(deleted_count, 2)
+        collection.delete_many.assert_called_once_with(
+            {"_id": {"$in": [ObjectId(post_id) for post_id in post_ids]}}
+        )
+        client.close.assert_called_once_with()
+
+    @patch("automation.services.linkedin_history._posts_collection")
+    def test_delete_all_posts_uses_empty_selector(self, get_collection):
+        from automation.services.linkedin_history import delete_linkedin_posts
+
+        client = Mock()
+        collection = Mock()
+        collection.delete_many.return_value.deleted_count = 5
+        get_collection.return_value = (client, collection)
+
+        deleted_count = delete_linkedin_posts()
+
+        self.assertEqual(deleted_count, 5)
+        collection.delete_many.assert_called_once_with({})
+        client.close.assert_called_once_with()
 
 
 class LinkedInOnlyAPITest(TestCase):
@@ -55,21 +121,163 @@ class LinkedInOnlyAPITest(TestCase):
 
     @patch("automation.linkedin_views.get_linkedin_token", return_value="test-token")
     @patch("automation.linkedin_views.post_linkedin")
-    def test_publish_uses_reviewed_text(self, post_linkedin, _get_token):
+    @patch("automation.linkedin_views.save_linkedin_post")
+    def test_publish_uses_reviewed_text(
+        self, save_post, post_linkedin, _get_token
+    ):
         post_linkedin.return_value = "LinkedIn post published successfully 🚀"
+        save_post.return_value = {"id": "post-1"}
         response = self.client.post(
             "/api/linkedin/publish/",
-            {"text": "Reviewed LinkedIn post"},
+            {
+                "prompt": "A post about software testing",
+                "text": "Reviewed LinkedIn post",
+            },
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         post_linkedin.assert_called_once_with(
             {"generated_text": "Reviewed LinkedIn post"}
         )
+        save_post.assert_called_once_with(
+            prompt="A post about software testing",
+            text="Reviewed LinkedIn post",
+            image_url=None,
+        )
 
     @patch("automation.linkedin_views.get_linkedin_token", return_value="test-token")
     @patch("automation.linkedin_views.post_linkedin")
-    def test_publish_forwards_uploaded_image(self, post_linkedin, _get_token):
+    @patch(
+        "automation.linkedin_views.save_linkedin_post",
+        side_effect=PyMongoError("TLS handshake failed"),
+    )
+    def test_mongodb_failure_does_not_report_published_post_as_failed(
+        self, _save_post, post_linkedin, _get_token
+    ):
+        post_linkedin.return_value = "LinkedIn post published successfully 🚀"
+
+        response = self.client.post(
+            "/api/linkedin/publish/",
+            {"text": "Reviewed LinkedIn post"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["published"])
+        self.assertFalse(response.json()["history_saved"])
+        self.assertEqual(
+            response.json()["result"],
+            "LinkedIn post published successfully 🚀",
+        )
+        self.assertIn("history_warning", response.json())
+
+    @patch("automation.linkedin_views.get_linkedin_token", return_value="test-token")
+    @patch(
+        "automation.linkedin_views.post_linkedin",
+        side_effect=LinkedInPublishOutcomeUnknown(),
+    )
+    def test_unconfirmed_linkedin_response_is_not_reported_as_publish_failure(
+        self, _post_linkedin, _get_token
+    ):
+        response = self.client.post(
+            "/api/linkedin/publish/",
+            {"text": "Reviewed LinkedIn post"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["published"])
+        self.assertIn("Check your LinkedIn profile", response.json()["result"])
+
+    @patch(
+        "automation.linkedin_views.get_linkedin_posts",
+        return_value=[{"id": "post-1", "text": "Saved post"}],
+    )
+    def test_post_history_returns_saved_posts(self, get_posts):
+        response = self.client.get("/api/linkedin/posts/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["posts"], get_posts.return_value)
+
+    def test_post_history_requires_session(self):
+        self.client.post("/api/auth/logout/")
+        response = self.client.get("/api/linkedin/posts/")
+        self.assertEqual(response.status_code, 401)
+
+    @patch("automation.linkedin_views.delete_linkedin_posts", return_value=2)
+    def test_delete_selected_post_history(self, delete_posts):
+        post_ids = [str(ObjectId()), str(ObjectId())]
+        response = self.client.delete(
+            "/api/linkedin/posts/",
+            {"ids": post_ids},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted_count"], 2)
+        delete_posts.assert_called_once_with(post_ids)
+
+    @patch("automation.linkedin_views.delete_linkedin_posts", return_value=5)
+    def test_clear_all_post_history(self, delete_posts):
+        response = self.client.delete(
+            "/api/linkedin/posts/",
+            {"all": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted_count"], 5)
+        delete_posts.assert_called_once_with(None)
+
+    def test_delete_rejects_invalid_post_ids(self):
+        response = self.client.delete(
+            "/api/linkedin/posts/",
+            {"ids": ["not-an-object-id"]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_rejects_non_object_payload(self):
+        response = self.client.delete(
+            "/api/linkedin/posts/",
+            ["not", "an", "object"],
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_requires_exactly_one_selection_mode(self):
+        response = self.client.delete(
+            "/api/linkedin/posts/",
+            {},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_post_history_requires_session(self):
+        self.client.post("/api/auth/logout/")
+        response = self.client.delete(
+            "/api/linkedin/posts/",
+            {"all": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 401)
+
+    @patch(
+        "automation.linkedin_views.get_linkedin_posts",
+        side_effect=PyMongoError("TLS handshake failed"),
+    )
+    def test_post_history_error_explains_mongodb_network_checks(
+        self, _get_posts
+    ):
+        response = self.client.get("/api/linkedin/posts/")
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("MONGODB_URI", response.json()["detail"])
+        self.assertIn("Django terminal", response.json()["detail"])
+
+    @patch("automation.linkedin_views.get_linkedin_token", return_value="test-token")
+    @patch("automation.linkedin_views.post_linkedin")
+    @patch("automation.linkedin_views.save_linkedin_post")
+    def test_publish_forwards_uploaded_image(
+        self, _save_post, post_linkedin, _get_token
+    ):
+        _save_post.return_value = {"id": "post-1"}
         from django.conf import settings
 
         image_path = (
@@ -164,3 +372,28 @@ class LinkedInImagePublishingTest(TestCase):
             share_content["media"][0]["media"],
             "urn:li:digitalmediaAsset:asset123",
         )
+
+
+class LinkedInPublishOutcomeTest(TestCase):
+    @patch(
+        "automation.services.linkedin_service.requests.post",
+        side_effect=requests.exceptions.ReadTimeout("response timed out"),
+    )
+    @patch(
+        "automation.services.linkedin_service.get_person_urn",
+        return_value="urn:li:person:123",
+    )
+    @patch(
+        "automation.services.linkedin_service.get_linkedin_token",
+        return_value="test-token",
+    )
+    def test_publish_timeout_is_reported_as_unknown(
+        self, _get_token, _get_person_urn, _post_request
+    ):
+        from automation.services.linkedin_service import (
+            LinkedInPublishOutcomeUnknown,
+            post_linkedin,
+        )
+
+        with self.assertRaises(LinkedInPublishOutcomeUnknown):
+            post_linkedin({"generated_text": "Reviewed copy"})

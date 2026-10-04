@@ -18,6 +18,7 @@ import requests
 #           linkedin_service.py
 #       linkedin_tokens.json
 #
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 TOKEN_FILE = BASE_DIR / "linkedin_tokens.json"
 
@@ -26,9 +27,14 @@ TOKEN_FILE = BASE_DIR / "linkedin_tokens.json"
 _PERSON_URN_CACHE = None
 
 
+class LinkedInPublishOutcomeUnknown(Exception):
+    """The publish request failed before its result could be confirmed."""
+
+
 # ---------------------------------------------------------
 # LinkedIn token
 # ---------------------------------------------------------
+
 
 def get_linkedin_token():
     """
@@ -61,6 +67,7 @@ def get_linkedin_token():
 # ---------------------------------------------------------
 # Get LinkedIn Person URN
 # ---------------------------------------------------------
+
 
 def get_person_urn(token=None):
     """
@@ -97,10 +104,16 @@ def get_person_urn(token=None):
             timeout=10,
         )
 
-        print(f"DEBUG: LinkedIn userinfo status: {response.status_code}")
+        print(
+            f"DEBUG: LinkedIn userinfo status: "
+            f"{response.status_code}"
+        )
 
         if response.status_code != 200:
-            print(f"ERROR: LinkedIn userinfo response: {response.text}")
+            print(
+                f"ERROR: LinkedIn userinfo response: "
+                f"{response.text}"
+            )
             return None
 
         data = response.json()
@@ -130,16 +143,35 @@ def get_person_urn(token=None):
         return None
 
 
+# ---------------------------------------------------------
+# Upload LinkedIn image
+# ---------------------------------------------------------
+
+
 def _upload_linkedin_image(image_path, token, person_urn):
-    register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+    """
+    Upload an image to LinkedIn and return the LinkedIn asset URN.
+
+    Returns:
+        (asset_urn, None) on success
+        (None, error_message) on failure
+    """
+
+    register_url = (
+        "https://api.linkedin.com/v2/assets?action=registerUpload"
+    )
+
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "X-Restli-Protocol-Version": "2.0.0",
     }
+
     registration = {
         "registerUploadRequest": {
-            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "recipes": [
+                "urn:li:digitalmediaRecipe:feedshare-image"
+            ],
             "owner": person_urn,
             "serviceRelationships": [
                 {
@@ -151,28 +183,64 @@ def _upload_linkedin_image(image_path, token, person_urn):
     }
 
     try:
+        print("DEBUG: Registering LinkedIn image upload...")
+
         response = requests.post(
             register_url,
             headers=headers,
             json=registration,
             timeout=30,
         )
-        if response.status_code not in (200, 201):
-            return None, f"LinkedIn image registration failed: {response.text}"
+
+        print(
+            "DEBUG: LinkedIn image registration status: "
+            f"{response.status_code}"
+        )
+
+        if response.status_code not in range(200, 300):
+            return (
+                None,
+                "LinkedIn image registration failed: "
+                f"{response.text}",
+            )
 
         response_data = response.json()
-        if not isinstance(response_data, dict):
-            return None, "LinkedIn returned an invalid image upload response."
-        value = response_data.get("value", {})
-        asset = value.get("asset")
-        upload_request = value.get("uploadMechanism", {}).get(
-            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}
-        )
-        upload_url = upload_request.get("uploadUrl")
-        if not asset or not upload_url:
-            return None, "LinkedIn did not return an image upload URL."
 
-        content_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
+        if not isinstance(response_data, dict):
+            return (
+                None,
+                "LinkedIn returned an invalid image upload response.",
+            )
+
+        value = response_data.get("value", {})
+
+        asset = value.get("asset")
+
+        upload_request = value.get(
+            "uploadMechanism", {}
+        ).get(
+            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest",
+            {},
+        )
+
+        upload_url = upload_request.get("uploadUrl")
+
+        if not asset or not upload_url:
+            return (
+                None,
+                "LinkedIn did not return an image upload URL.",
+            )
+
+        content_type = (
+            mimetypes.guess_type(image_path.name)[0]
+            or "application/octet-stream"
+        )
+
+        print(
+            f"DEBUG: Uploading image with content type: "
+            f"{content_type}"
+        )
+
         with image_path.open("rb") as image_file:
             upload_response = requests.put(
                 upload_url,
@@ -183,10 +251,23 @@ def _upload_linkedin_image(image_path, token, person_urn):
                 data=image_file,
                 timeout=60,
             )
-        if upload_response.status_code not in (200, 201):
-            return None, f"LinkedIn image upload failed: {upload_response.text}"
+
+        print(
+            "DEBUG: LinkedIn image upload status: "
+            f"{upload_response.status_code}"
+        )
+
+        if upload_response.status_code not in range(200, 300):
+            return (
+                None,
+                "LinkedIn image upload failed: "
+                f"{upload_response.text}",
+            )
+
+        print(f"DEBUG: LinkedIn image asset: {asset}")
 
         return asset, None
+
     except (OSError, ValueError, requests.RequestException) as error:
         return None, f"LinkedIn image upload failed: {error}"
 
@@ -195,10 +276,22 @@ def _upload_linkedin_image(image_path, token, person_urn):
 # Publish LinkedIn post
 # ---------------------------------------------------------
 
+
 def post_linkedin(details):
     """
-    Publish a text post, optionally with an image, to the authenticated profile.
+    Publish a text post, optionally with an image,
+    to the authenticated LinkedIn profile.
+
+    Returns the exact success string expected by
+    linkedin_views.py when LinkedIn accepts the post.
     """
+
+    # -----------------------------------------------------
+    # Validate details
+    # -----------------------------------------------------
+
+    if not isinstance(details, dict):
+        return "LinkedIn post details are invalid."
 
     # -----------------------------------------------------
     # Get post text
@@ -214,7 +307,7 @@ def post_linkedin(details):
 
     if not raw_text:
         print(
-            f"ERROR: No text found in details keys: "
+            "ERROR: No text found in details keys: "
             f"{list(details.keys())}"
         )
 
@@ -222,6 +315,12 @@ def post_linkedin(details):
             "LinkedIn post text missing. "
             f"Received keys: {list(details.keys())}"
         )
+
+    # Always convert to string so the request body is safe.
+    text = str(raw_text).strip()
+
+    if not text:
+        return "LinkedIn post text is empty."
 
     # -----------------------------------------------------
     # Get latest LinkedIn token
@@ -253,25 +352,54 @@ def post_linkedin(details):
     # -----------------------------------------------------
 
     if details.get("generated_text"):
-        # Use the text that the user already reviewed
-        text = details["generated_text"]
-
+        # Use the text that the user already reviewed.
+        text = str(details["generated_text"]).strip()
     else:
-        text = raw_text
+        text = str(raw_text).strip()
+
+    if not text:
+        return "LinkedIn post text is empty."
 
     # LinkedIn UGC posts have a 3000-character text limit.
     if len(text) > 3000:
+        print(
+            "DEBUG: Post text exceeds 3000 characters. "
+            "Truncating."
+        )
+
         text = text[:3000]
 
+    # -----------------------------------------------------
+    # Optional image upload
+    # -----------------------------------------------------
+
     image_asset = None
-    image_path = details.get("image_path")
-    if image_path:
+
+    image_path_value = details.get("image_path")
+
+    if image_path_value:
+        image_path = Path(image_path_value)
+
+        if not image_path.exists():
+            return (
+                "LinkedIn image file was not found: "
+                f"{image_path}"
+            )
+
+        if not image_path.is_file():
+            return (
+                "LinkedIn image path is not a file: "
+                f"{image_path}"
+            )
+
         image_asset, upload_error = _upload_linkedin_image(
-            Path(image_path),
+            image_path,
             token,
             person_urn,
         )
+
         if upload_error:
+            print(f"ERROR: {upload_error}")
             return upload_error
 
     # -----------------------------------------------------
@@ -287,15 +415,22 @@ def post_linkedin(details):
     }
 
     share_content = {
-        "shareCommentary": {"text": text},
-        "shareMediaCategory": "IMAGE" if image_asset else "NONE",
+        "shareCommentary": {
+            "text": text
+        },
+        "shareMediaCategory": (
+            "IMAGE" if image_asset else "NONE"
+        ),
     }
+
     if image_asset:
         share_content["media"] = [
             {
                 "status": "READY",
                 "media": image_asset,
-                "title": {"text": "Post image"},
+                "title": {
+                    "text": "Post image"
+                },
             }
         ]
 
@@ -312,9 +447,12 @@ def post_linkedin(details):
 
     print("DEBUG: Publishing LinkedIn post...")
     print(f"DEBUG: Author: {person_urn}")
+    print(
+        "DEBUG: Image included: "
+        f"{bool(image_asset)}"
+    )
 
     try:
-
         response = requests.post(
             post_url,
             headers=post_headers,
@@ -323,25 +461,47 @@ def post_linkedin(details):
         )
 
         print(
-            f"DEBUG: LinkedIn post status: "
+            "DEBUG: LinkedIn post status: "
             f"{response.status_code}"
         )
 
         # -------------------------------------------------
-        # Success
+        # SUCCESS
+        # -------------------------------------------------
+        #
+        # IMPORTANT:
+        # Do not restrict this to only 200/201.
+        #
+        # If LinkedIn returns ANY 2xx response, the request
+        # was accepted successfully. This prevents the
+        # frontend from showing "Could not publish the post"
+        # when LinkedIn has actually accepted the post.
         # -------------------------------------------------
 
-        if response.status_code in (200, 201):
-
+        if 200 <= response.status_code < 300:
             post_id = response.headers.get("X-RestLi-Id")
 
             if post_id:
-                print(f"DEBUG: LinkedIn post ID: {post_id}")
+                print(
+                    f"DEBUG: LinkedIn post ID: {post_id}"
+                )
+            else:
+                print(
+                    "DEBUG: LinkedIn did not return "
+                    "X-RestLi-Id."
+                )
 
+            print(
+                "DEBUG: LinkedIn post published "
+                "successfully."
+            )
+
+            # This exact string is intentionally preserved
+            # because linkedin_views.py checks for it.
             return "LinkedIn post published successfully 🚀"
 
         # -------------------------------------------------
-        # Expired token
+        # Expired token / authentication failure
         # -------------------------------------------------
 
         if response.status_code == 401:
@@ -355,15 +515,15 @@ def post_linkedin(details):
 
             if error_code == "EXPIRED_ACCESS_TOKEN":
 
-                # Clear cached URN because we'll need to
+                # Clear cached URN because we will need to
                 # authenticate again.
                 global _PERSON_URN_CACHE
                 _PERSON_URN_CACHE = None
 
                 return (
                     "LinkedIn access token has expired. "
-                    "Please connect LinkedIn again to generate "
-                    "a new access token."
+                    "Please connect LinkedIn again to "
+                    "generate a new access token."
                 )
 
             return (
@@ -375,10 +535,23 @@ def post_linkedin(details):
         # Other LinkedIn error
         # -------------------------------------------------
 
-        return f"LinkedIn ERROR: {response.text}"
+        print(
+            "ERROR: LinkedIn publish failed. "
+            f"Status={response.status_code}, "
+            f"Response={response.text}"
+        )
+
+        return (
+            f"LinkedIn ERROR ({response.status_code}): "
+            f"{response.text}"
+        )
 
     except requests.RequestException as e:
 
-        print(f"LinkedIn request exception: {e}")
+        print(
+            f"LinkedIn request exception: {e}"
+        )
 
-        return f"LinkedIn connection error: {e}"
+        raise LinkedInPublishOutcomeUnknown(
+            "LinkedIn did not return a response for the publish request."
+        ) from e

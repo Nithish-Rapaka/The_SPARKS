@@ -6,8 +6,10 @@ import {
   Linkedin,
   Loader2,
   LogOut,
+  RefreshCw,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -25,12 +27,38 @@ export default function LinkedInDashboard() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [publishedPosts, setPublishedPosts] = useState([]);
+  const [historyBusy, setHistoryBusy] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [selectedPostIds, setSelectedPostIds] = useState([]);
+
+  const loadPublishedPosts = async () => {
+    setHistoryBusy(true);
+    setHistoryError("");
+    try {
+      const { data } = await apiClient.linkedinPosts();
+      setPublishedPosts(data.posts);
+      setSelectedPostIds((selected) =>
+        selected.filter((id) =>
+          data.posts.some((savedPost) => savedPost.id === id),
+        ),
+      );
+    } catch (requestError) {
+      setHistoryError(
+        requestError.response?.data?.detail ||
+          "Could not load your published posts.",
+      );
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
 
   useEffect(() => {
     apiClient
       .linkedinStatus()
       .then(({ data }) => setConnected(data.connected))
       .catch(() => setConnected(false));
+    loadPublishedPosts();
   }, []);
 
   const generatePost = async (event) => {
@@ -95,14 +123,81 @@ export default function LinkedInDashboard() {
       const { data } = await apiClient.publishLinkedInPost(
         post,
         image?.imageUrl,
+        prompt.trim(),
       );
       setNotice(data.result);
+      if (data.published === null) {
+        return;
+      } else if (data.history_saved === false) {
+        setHistoryError(
+          data.history_warning ||
+            "The post is live on LinkedIn, but could not be saved to post history.",
+        );
+      } else {
+        await loadPublishedPosts();
+      }
     } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail || "Could not publish the post.",
-      );
+      const responseData = requestError.response?.data;
+      if (responseData?.published === true) {
+        setNotice(
+          responseData.result || "LinkedIn post published successfully 🚀",
+        );
+        setHistoryError(
+          responseData.history_warning ||
+            responseData.detail ||
+            "The post is live on LinkedIn, but could not be saved to post history.",
+        );
+      } else {
+        setError(
+          responseData?.detail || "LinkedIn post published successfully 🚀",
+        );
+      }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const togglePostSelection = (postId) => {
+    setSelectedPostIds((selected) =>
+      selected.includes(postId)
+        ? selected.filter((id) => id !== postId)
+        : [...selected, postId],
+    );
+  };
+
+  const toggleAllPostSelection = () => {
+    setSelectedPostIds((selected) =>
+      selected.length === publishedPosts.length
+        ? []
+        : publishedPosts.map((savedPost) => savedPost.id),
+    );
+  };
+
+  const deletePosts = async (postIds) => {
+    const clearAll = postIds === null;
+    const confirmation = clearAll
+      ? "Delete all saved post history from the database? This cannot be undone."
+      : `Delete ${postIds.length} selected saved post${postIds.length === 1 ? "" : "s"}? This cannot be undone.`;
+    if (!window.confirm(confirmation)) return;
+
+    setHistoryBusy(true);
+    setHistoryError("");
+    setError("");
+    setNotice("");
+    try {
+      const { data } = await apiClient.deleteLinkedInPosts(postIds);
+      setSelectedPostIds([]);
+      setNotice(
+        `Deleted ${data.deleted_count} saved post${data.deleted_count === 1 ? "" : "s"}.`,
+      );
+      await loadPublishedPosts();
+    } catch (requestError) {
+      setHistoryError(
+        requestError.response?.data?.detail ||
+          "Could not delete the selected post history.",
+      );
+    } finally {
+      setHistoryBusy(false);
     }
   };
 
@@ -181,16 +276,26 @@ export default function LinkedInDashboard() {
             <div className="image-upload-section">
               <div className="image-upload-heading">
                 <div>
-                  <h3>Post image <span>Optional</span></h3>
+                  <h3>
+                    Post image <span>Optional</span>
+                  </h3>
                   <p>Add an image to publish alongside your post.</p>
                 </div>
                 <label className="image-upload-button">
                   {imageBusy ? (
-                    <Loader2 size={16} className="loading-icon" aria-hidden="true" />
+                    <Loader2
+                      size={16}
+                      className="loading-icon"
+                      aria-hidden="true"
+                    />
                   ) : (
                     <ImagePlus size={16} aria-hidden="true" />
                   )}
-                  {imageBusy ? "Uploading..." : image ? "Replace image" : "Choose image"}
+                  {imageBusy
+                    ? "Uploading..."
+                    : image
+                      ? "Replace image"
+                      : "Choose image"}
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
@@ -202,7 +307,10 @@ export default function LinkedInDashboard() {
               </div>
               {image ? (
                 <div className="uploaded-image-preview">
-                  <img src={image.previewUrl} alt="Preview of the uploaded post" />
+                  <img
+                    src={image.previewUrl}
+                    alt="Preview of the uploaded post"
+                  />
                   <div className="uploaded-image-details">
                     <span>{image.filename}</span>
                     <span>Ready to publish</span>
@@ -218,7 +326,9 @@ export default function LinkedInDashboard() {
                   </button>
                 </div>
               ) : (
-                <p className="image-upload-hint">JPG, PNG, or WEBP · Up to 10 MB</p>
+                <p className="image-upload-hint">
+                  JPG, PNG, or WEBP · Up to 10 MB
+                </p>
               )}
             </div>
             <div className="panel-footer">
@@ -253,7 +363,10 @@ export default function LinkedInDashboard() {
             {image && (
               <div className="review-image-preview">
                 <span>Image attached to this post</span>
-                <img src={image.previewUrl} alt="Image that will be published with the post" />
+                <img
+                  src={image.previewUrl}
+                  alt="Image that will be published with the post"
+                />
               </div>
             )}
             <div className="panel-footer">
@@ -281,6 +394,110 @@ export default function LinkedInDashboard() {
             {error || notice}
           </div>
         )}
+
+        <section className="history-section" aria-labelledby="history-heading">
+          <div className="history-heading">
+            <div>
+              <p className="eyebrow">PUBLISHED</p>
+              <h2 id="history-heading">Post history</h2>
+              <p>Your most recent 50 published posts.</p>
+            </div>
+            <button
+              type="button"
+              className="secondary-button history-refresh"
+              onClick={loadPublishedPosts}
+              disabled={historyBusy}
+            >
+              <RefreshCw
+                size={15}
+                className={historyBusy ? "loading-icon" : ""}
+                aria-hidden="true"
+              />
+              {historyBusy ? "Loading..." : "Refresh"}
+            </button>
+          </div>
+
+          {!historyBusy && !historyError && publishedPosts.length > 0 && (
+            <div className="history-actions">
+              <label className="history-select-all">
+                <input
+                  type="checkbox"
+                  checked={selectedPostIds.length === publishedPosts.length}
+                  onChange={toggleAllPostSelection}
+                  aria-label="Select all displayed posts"
+                />
+                Select all displayed
+              </label>
+              <button
+                type="button"
+                className="history-delete-button"
+                onClick={() => deletePosts(selectedPostIds)}
+                disabled={historyBusy || selectedPostIds.length === 0}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+                Delete selected ({selectedPostIds.length})
+              </button>
+              <button
+                type="button"
+                className="history-delete-button"
+                onClick={() => deletePosts(null)}
+                disabled={historyBusy}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+                Clear all history
+              </button>
+            </div>
+          )}
+
+          {historyError && (
+            <div className="status-message status-error" role="status">
+              {historyError}
+            </div>
+          )}
+
+          {historyBusy ? (
+            <p className="history-empty" role="status">
+              Loading published posts...
+            </p>
+          ) : historyError ? null : publishedPosts.length === 0 ? (
+            <p className="history-empty">
+              No published posts yet. Your posts will appear here after
+              publishing.
+            </p>
+          ) : (
+            <div className="history-list">
+              {publishedPosts.map((savedPost) => (
+                <article className="history-card" key={savedPost.id}>
+                  <div className="history-card-heading">
+                    <label className="history-select-post">
+                      <input
+                        type="checkbox"
+                        checked={selectedPostIds.includes(savedPost.id)}
+                        onChange={() => togglePostSelection(savedPost.id)}
+                        aria-label={`Select post published ${new Date(savedPost.published_at).toLocaleString()}`}
+                      />
+                      <span>Published</span>
+                    </label>
+                    <time dateTime={savedPost.published_at}>
+                      {new Date(savedPost.published_at).toLocaleString()}
+                    </time>
+                  </div>
+                  {savedPost.prompt && (
+                    <p className="history-prompt">{savedPost.prompt}</p>
+                  )}
+                  <p className="history-post-text">{savedPost.text}</p>
+                  {savedPost.image_url && (
+                    <img
+                      className="history-image"
+                      src={mediaUrl(savedPost.image_url)}
+                      alt="Image attached to this published post"
+                    />
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </section>
     </main>
   );
