@@ -412,8 +412,162 @@ textarea:focus-visible {
   min-height: 245px;
 }
 
+.image-upload-section {
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid #e2e7df;
+  border-radius: 6px;
+  background: #f7f9f4;
+}
+
+.image-upload-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.image-upload-heading h3 {
+  color: #29453a;
+  font-size: 13px;
+}
+
+.image-upload-heading h3 span {
+  margin-left: 5px;
+  color: #879188;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.image-upload-heading p,
+.image-upload-hint {
+  margin-top: 5px;
+  color: #7a877e;
+  font-size: 11px;
+}
+
+.image-upload-button {
+  min-height: 36px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #d4ded2;
+  border-radius: 5px;
+  color: #245140;
+  background: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.image-upload-button:hover {
+  background: #eef4eb;
+}
+
+.image-upload-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.image-upload-button:focus-within {
+  outline: 3px solid #e5a849;
+  outline-offset: 3px;
+}
+
+.loading-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.uploaded-image-preview {
+  margin-top: 13px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.uploaded-image-preview img {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.uploaded-image-details {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: #53675b;
+  font-size: 11px;
+}
+
+.uploaded-image-details span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploaded-image-details span:last-child {
+  color: #31805f;
+}
+
+.remove-image-button {
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  color: #7a877e;
+  background: transparent;
+  cursor: pointer;
+}
+
+.remove-image-button:hover:not(:disabled) {
+  color: #a23f36;
+  background: #f6e7e2;
+}
+
+.remove-image-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .post-input {
   min-height: 335px;
+}
+
+.review-image-preview {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #627268;
+  font-size: 11px;
+}
+
+.review-image-preview img {
+  width: 76px;
+  height: 58px;
+  border-radius: 4px;
+  object-fit: cover;
 }
 
 .idea-input::placeholder,

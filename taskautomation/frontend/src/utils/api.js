@@ -7,6 +7,8 @@ const api = axios.create({
   withCredentials: true,
 });
 
+export const mediaUrl = (path) => new URL(path, API_BASE).toString();
+
 export const apiClient = {
   login: (username, password) =>
     api.post("/api/auth/login/", { username, password }),
@@ -15,7 +17,13 @@ export const apiClient = {
   linkedinStatus: () => api.get("/api/linkedin/status/"),
   generateLinkedInPost: (prompt) =>
     api.post("/api/linkedin/preview/", { prompt }),
-  publishLinkedInPost: (text) => api.post("/api/linkedin/publish/", { text }),
+  uploadLinkedInImage: (file) => {
+    const formData = new FormData();
+    formData.append("image", file);
+    return api.post("/api/linkedin/upload-image/", formData);
+  },
+  publishLinkedInPost: (text, imageUrl) =>
+    api.post("/api/linkedin/publish/", { text, image_url: imageUrl }),
   connectLinkedIn: () => {
     const frontendOrigin = encodeURIComponent(window.location.origin);
     window.location.assign(

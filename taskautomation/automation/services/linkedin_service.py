@@ -1,5 +1,6 @@
 import os
 import json
+import mimetypes
 from pathlib import Path
 
 import requests
@@ -129,13 +130,74 @@ def get_person_urn(token=None):
         return None
 
 
+def _upload_linkedin_image(image_path, token, person_urn):
+    register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+    }
+    registration = {
+        "registerUploadRequest": {
+            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "owner": person_urn,
+            "serviceRelationships": [
+                {
+                    "relationshipType": "OWNER",
+                    "identifier": "urn:li:userGeneratedContent",
+                }
+            ],
+        }
+    }
+
+    try:
+        response = requests.post(
+            register_url,
+            headers=headers,
+            json=registration,
+            timeout=30,
+        )
+        if response.status_code not in (200, 201):
+            return None, f"LinkedIn image registration failed: {response.text}"
+
+        response_data = response.json()
+        if not isinstance(response_data, dict):
+            return None, "LinkedIn returned an invalid image upload response."
+        value = response_data.get("value", {})
+        asset = value.get("asset")
+        upload_request = value.get("uploadMechanism", {}).get(
+            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}
+        )
+        upload_url = upload_request.get("uploadUrl")
+        if not asset or not upload_url:
+            return None, "LinkedIn did not return an image upload URL."
+
+        content_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
+        with image_path.open("rb") as image_file:
+            upload_response = requests.put(
+                upload_url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": content_type,
+                },
+                data=image_file,
+                timeout=60,
+            )
+        if upload_response.status_code not in (200, 201):
+            return None, f"LinkedIn image upload failed: {upload_response.text}"
+
+        return asset, None
+    except (OSError, ValueError, requests.RequestException) as error:
+        return None, f"LinkedIn image upload failed: {error}"
+
+
 # ---------------------------------------------------------
 # Publish LinkedIn post
 # ---------------------------------------------------------
 
 def post_linkedin(details):
     """
-    Publish a text post to the authenticated LinkedIn member's profile.
+    Publish a text post, optionally with an image, to the authenticated profile.
     """
 
     # -----------------------------------------------------
@@ -201,6 +263,17 @@ def post_linkedin(details):
     if len(text) > 3000:
         text = text[:3000]
 
+    image_asset = None
+    image_path = details.get("image_path")
+    if image_path:
+        image_asset, upload_error = _upload_linkedin_image(
+            Path(image_path),
+            token,
+            person_urn,
+        )
+        if upload_error:
+            return upload_error
+
     # -----------------------------------------------------
     # LinkedIn UGC Posts API
     # -----------------------------------------------------
@@ -213,16 +286,24 @@ def post_linkedin(details):
         "X-Restli-Protocol-Version": "2.0.0",
     }
 
+    share_content = {
+        "shareCommentary": {"text": text},
+        "shareMediaCategory": "IMAGE" if image_asset else "NONE",
+    }
+    if image_asset:
+        share_content["media"] = [
+            {
+                "status": "READY",
+                "media": image_asset,
+                "title": {"text": "Post image"},
+            }
+        ]
+
     payload = {
         "author": person_urn,
         "lifecycleState": "PUBLISHED",
         "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {
-                    "text": text
-                },
-                "shareMediaCategory": "NONE",
-            }
+            "com.linkedin.ugc.ShareContent": share_content
         },
         "visibility": {
             "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"

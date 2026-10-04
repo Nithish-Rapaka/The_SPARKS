@@ -13,8 +13,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-DEMO_USERNAME = "linkedin"
-DEMO_PASSWORD = "LinkedIn#2026!"
+DEMO_USERNAME = "admin"
+DEMO_PASSWORD = "admin"
 
 
 @api_view(["POST"])

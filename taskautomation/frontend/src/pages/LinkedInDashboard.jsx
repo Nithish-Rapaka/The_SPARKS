@@ -2,20 +2,25 @@ import { useEffect, useState } from "react";
 import {
   Check,
   ExternalLink,
+  ImagePlus,
   Linkedin,
+  Loader2,
   LogOut,
   Send,
   Sparkles,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { apiClient } from "../utils/api";
+import { apiClient, mediaUrl } from "../utils/api";
 
 export default function LinkedInDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [post, setPost] = useState("");
+  const [image, setImage] = useState(null);
+  const [imageBusy, setImageBusy] = useState(false);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -46,12 +51,51 @@ export default function LinkedInDashboard() {
     }
   };
 
+  const uploadImage = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      setError("Choose a JPG, PNG, or WEBP image.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Image must be smaller than 10 MB.");
+      return;
+    }
+
+    setImageBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const { data } = await apiClient.uploadLinkedInImage(file);
+      setImage({
+        filename: data.filename,
+        imageUrl: data.image_url,
+        previewUrl: mediaUrl(data.image_url),
+      });
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.detail || "Could not upload the image.",
+      );
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const removeImage = () => setImage(null);
+
   const publishPost = async () => {
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const { data } = await apiClient.publishLinkedInPost(post);
+      const { data } = await apiClient.publishLinkedInPost(
+        post,
+        image?.imageUrl,
+      );
       setNotice(data.result);
     } catch (requestError) {
       setError(
@@ -134,11 +178,54 @@ export default function LinkedInDashboard() {
               rows={8}
               maxLength={1200}
             />
+            <div className="image-upload-section">
+              <div className="image-upload-heading">
+                <div>
+                  <h3>Post image <span>Optional</span></h3>
+                  <p>Add an image to publish alongside your post.</p>
+                </div>
+                <label className="image-upload-button">
+                  {imageBusy ? (
+                    <Loader2 size={16} className="loading-icon" aria-hidden="true" />
+                  ) : (
+                    <ImagePlus size={16} aria-hidden="true" />
+                  )}
+                  {imageBusy ? "Uploading..." : image ? "Replace image" : "Choose image"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={uploadImage}
+                    disabled={imageBusy || busy}
+                    aria-label="Upload an image for the LinkedIn post"
+                  />
+                </label>
+              </div>
+              {image ? (
+                <div className="uploaded-image-preview">
+                  <img src={image.previewUrl} alt="Preview of the uploaded post" />
+                  <div className="uploaded-image-details">
+                    <span>{image.filename}</span>
+                    <span>Ready to publish</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="remove-image-button"
+                    onClick={removeImage}
+                    disabled={busy}
+                    aria-label="Remove uploaded image"
+                  >
+                    <X size={17} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                <p className="image-upload-hint">JPG, PNG, or WEBP · Up to 10 MB</p>
+              )}
+            </div>
             <div className="panel-footer">
               <span>{prompt.length}/1,200</span>
               <button
                 className="primary-button"
-                disabled={busy || !prompt.trim()}
+                disabled={busy || imageBusy || !prompt.trim()}
               >
                 <Sparkles size={17} aria-hidden="true" />
                 {busy ? "Working..." : "Generate draft"}
@@ -151,7 +238,7 @@ export default function LinkedInDashboard() {
               <span className="step-index">02</span>
               <div>
                 <h2>Review your post</h2>
-                <p>Edit the text before publishing.</p>
+                <p>Review the text and image, then approve to publish.</p>
               </div>
             </div>
             <textarea
@@ -163,6 +250,12 @@ export default function LinkedInDashboard() {
               maxLength={3000}
               aria-label="LinkedIn post draft"
             />
+            {image && (
+              <div className="review-image-preview">
+                <span>Image attached to this post</span>
+                <img src={image.previewUrl} alt="Image that will be published with the post" />
+              </div>
+            )}
             <div className="panel-footer">
               <span className={post.length > 2800 ? "character-warning" : ""}>
                 {post.length.toLocaleString()}/3,000
@@ -170,10 +263,10 @@ export default function LinkedInDashboard() {
               <button
                 className="publish-button"
                 onClick={publishPost}
-                disabled={busy || !post.trim() || !connected}
+                disabled={busy || imageBusy || !post.trim() || !connected}
               >
                 <Send size={16} aria-hidden="true" />
-                {busy ? "Publishing..." : "Publish post"}
+                {busy ? "Publishing..." : "Approve & publish"}
               </button>
             </div>
           </section>

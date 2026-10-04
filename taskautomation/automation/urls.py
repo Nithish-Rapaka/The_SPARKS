@@ -7,10 +7,12 @@ from .auth_views import (
     linkedin_login,
     linkedin_callback,
 )
+
 from .linkedin_views import (
     linkedin_preview,
     linkedin_publish_post,
     linkedin_status,
+    linkedin_upload_image,
 )
 
 urlpatterns = [
@@ -19,10 +21,16 @@ urlpatterns = [
     path("api/auth/logout/", logout),
     path("api/auth/session/", session_status),
 
-    # LinkedIn publishing
+    # LinkedIn
     path("api/linkedin/status/", linkedin_status),
     path("api/linkedin/preview/", linkedin_preview),
     path("api/linkedin/publish/", linkedin_publish_post),
+
+    # LinkedIn image upload
+    path(
+        "api/linkedin/upload-image/",
+        linkedin_upload_image,
+    ),
 
     # LinkedIn OAuth
     path("link/linkedin/", linkedin_login),

@@ -72,3 +72,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 SESSION_COOKIE_AGE = 60 * 60 * 8
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
